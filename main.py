@@ -1,17 +1,15 @@
-import asyncio
+import telebot
 import random
 import uuid
-from aiogram import Bot, Dispatcher, F, types
-from aiogram.filters import Command, CommandObject
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from aiogram.fsm.storage.memory import MemoryStorage
+import time
+from telebot import types
 
 BOT_TOKEN = "8997952716:AAG7XAEhK9HZQgqSoARA5H7KhddYNQvMMRE"
 OWNER_ID = 7838553850
 
-bot = Bot(token=BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+bot = telebot.TeleBot(BOT_TOKEN)
 
+# Временная база данных для текстовых игр
 guess_number_game = {"active": False, "number": None, "range": (0, 0)}
 clash_game = {"active": False}
 
@@ -22,57 +20,64 @@ def format_time(seconds: int) -> str:
         return f"{minutes} мин." if rem_seconds == 0 else f"{minutes} мин. {rem_seconds} сек."
     return f"{seconds} сек."
 
-@dp.message(F.dice.emoji == "🎰")
-async def handle_slots(message: types.Message):
+@bot.message_handler(content_types=['dice'])
+def handle_dice(message):
+    if message.dice.emoji != "🎰":
+        return
+        
     value = message.dice.value
     user_id = message.from_user.id
-    await asyncio.sleep(2.0)
     
-    if value == 64:
-        await message.reply("🎉 Молодец, ты выбил 777!\nПеред тобой 25 ячеек, выбери одну и получай приз!")
+    # Ждем анимацию слотов
+    time.sleep(2.0)
+    
+    if value == 64:  # Выпало 777
+        bot.reply_to(message, "🎉 Молодец, ты выбил 777!\nПеред тобой 25 ячеек, выбери одну и получай приз!")
+        
         game_id = str(uuid.uuid4())[:8]
         is_nft = random.randint(1, 1000) == 777
         
-        pool = []
         if is_nft:
-            pool.append("NFT 🍊")
-            pool.extend(["🧸"] * 11 + ["🌹"] * 10 + ["🚀"] * 3)
+            pool = ["NFT 🍊"] + ["🧸"] * 11 + ["🌹"] * 10 + ["🚀"] * 3
         else:
             pool = ["🧸"] * 11 + ["🌹"] * 11 + ["🚀"] * 3
             
         random.shuffle(pool)
         
-        builder = InlineKeyboardBuilder()
+        markup = types.InlineKeyboardMarkup(row_width=5)
+        buttons = []
+        pool_str = "".join(pool).replace("NFT 🍊", "N")
         for i in range(25):
             prize_code = pool[i]
-            pool_str = "".join(pool).replace("NFT 🍊", "N")
-            builder.button(text="❓", callback_data=f"c7:{user_id}:{game_id}:{prize_code}:{i}:{pool_str}")
-        builder.adjust(5)
-        await message.answer("Выбирай ячейку 👇", reply_markup=builder.as_markup())
+            buttons.append(types.InlineKeyboardButton(text="❓", callback_data=f"c7:{user_id}:{game_id}:{prize_code}:{i}:{pool_str}"))
+        markup.add(*buttons)
+        bot.send_message(message.chat.id, "Выбирай ячейку 👇", reply_markup=markup)
         
-    elif value in:
-        await message.reply("🔥 Молодец! Ты выбил комбинацию!\nПеред тобой 3 ячейки, выбери одну. Если выберешь правильную — ты получишь мишку!")
+    elif value in:  # Другие комбинации
+        bot.reply_to(message, "🔥 Молодец! Ты выбил комбинацию!\nПеред тобой 3 ячейки, выбери одну. Если выберешь правильную — ты получишь мишку!")
+        
         game_id = str(uuid.uuid4())[:8]
         slots_3 = ["❌", "❌", "❌"]
         slots_3[random.randint(0, 2)] = "🧸"
         
-        builder = InlineKeyboardBuilder()
+        markup = types.InlineKeyboardMarkup(row_width=3)
+        buttons = []
+        pool_str = "".join(slots_3)
         for i in range(3):
-            pool_str = "".join(slots_3)
-            builder.button(text="❓", callback_data=f"c3:{user_id}:{game_id}:{slots_3[i]}:{pool_str}")
-        builder.adjust(3)
-        await message.answer("Выбирай ячейку 👇", reply_markup=builder.as_markup())
+            buttons.append(types.InlineKeyboardButton(text="❓", callback_data=f"c3:{user_id}:{game_id}:{slots_3[i]}:{pool_str}"))
+        markup.add(*buttons)
+        bot.send_message(message.chat.id, "Выбирай ячейку 👇", reply_markup=markup)
 
-@dp.callback_query(F.data.startswith("c7:"))
-async def process_777_click(callback: types.CallbackQuery):
-    data = callback.data.split(":")
+@bot.callback_query_handler(func=lambda call: call.data.startswith('c7:'))
+def process_777_click(call):
+    data = call.data.split(":")
     owner_id = int(data[1])
     chosen_prize = data[3]
     chosen_idx = int(data[4])
     pool_str = data[5]
     
-    if callback.from_user.id != owner_id:
-        await callback.answer("не ну не ты же выйграл", show_alert=True)
+    if call.from_user.id != owner_id:
+        bot.answer_callback_query(call.id, "не ну не ты же выйграл", show_alert=True)
         return
         
     all_prizes = ["NFT 🍊" if char == "N" else char for char in pool_str]
@@ -82,92 +87,105 @@ async def process_777_click(callback: types.CallbackQuery):
         if (idx + 1) % 5 == 0:
             revealed_text += "\n"
             
-    await callback.message.edit_text(revealed_text)
+    bot.edit_message_text(revealed_text, call.message.chat.id, call.message.message_id)
     
     if chosen_prize in ["N", "NFT 🍊"]:
-        await callback.message.answer("🌟 Ничего себе! Ты выиграл уникальный NFT 🍊! Улучшению не подлежит.")
+        bot.send_message(call.message.chat.id, "🌟 Ничего себе! Ты выиграл уникальный NFT 🍊! Улучшению не подлежит.")
     else:
         prize_map = {"🧸": "мишку", "🌹": "розу", "🚀": "ракету"}
-        await callback.message.answer(f"Молодец ты выйграл {prize_map.get(chosen_prize, '')} хочешь улучшить?")
-        builder = InlineKeyboardBuilder()
-        builder.button(text="Да ✅", callback_data=f"up:yes:{owner_id}:{chosen_prize}")
-        builder.button(text="Нет ❌", callback_data=f"up:no:{owner_id}:none")
-        await callback.message.answer("Сделай выбор:", reply_markup=builder.as_markup())
-    await callback.answer()
+        bot.send_message(call.message.chat.id, f"Молодец ты выйграл {prize_map.get(chosen_prize, '')} хочешь улучшить?")
+        
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton(text="Да ✅", callback_data=f"up:yes:{owner_id}:{chosen_prize}"),
+            types.InlineKeyboardButton(text="Нет ❌", callback_data=f"up:no:{owner_id}:none")
+        )
+        bot.send_message(call.message.chat.id, "Сделай выбор:", reply_markup=markup)
+    bot.answer_callback_query(call.id)
 
-@dp.callback_query(F.data.startswith("up:"))
-async def process_upgrade(callback: types.CallbackQuery):
-    data = callback.data.split(":")
+@bot.callback_query_handler(func=lambda call: call.data.startswith('up:'))
+def process_upgrade(call):
+    data = call.data.split(":")
     choice = data[1]
     owner_id = int(data[2])
     current_item = data[3]
     
-    if callback.from_user.id != owner_id:
-        await callback.answer("не ну не ты же выйграл", show_alert=True)
+    if call.from_user.id != owner_id:
+        bot.answer_callback_query(call.id, "не ну не ты же выйграл", show_alert=True)
         return
         
     if choice == "no":
-        await callback.message.edit_text("Ты решил забрать свой текущий подарок! 🎁")
-        await callback.answer()
+        bot.edit_message_text("Ты решил забрать свой текущий подарок! 🎁", call.message.chat.id, call.message.message_id)
+        bot.answer_callback_query(call.id)
         return
         
     next_item_map = {"🧸": ("🌹", "розы"), "🌹": ("🚀", "ракеты")}
     if current_item not in next_item_map:
-        await callback.message.edit_text("Этот предмет нельзя улучшить дальше! 🏆")
-        await callback.answer()
+        bot.edit_message_text("Этот предмет нельзя улучшить дальше! 🏆", call.message.chat.id, call.message.message_id)
+        bot.answer_callback_query(call.id)
         return
         
     next_item_emoji, next_item_name = next_item_map[current_item]
-    bounce_msg = await callback.message.answer_dice(emoji="🏀")
-    await asyncio.sleep(3.5)
+    bounce_msg = bot.send_dice(call.message.chat.id, emoji="🏀")
+    time.sleep(3.5)
     
     if bounce_msg.dice.value in:
-        await callback.message.answer(f"Молодец ты улучшил подарок до {next_item_name} хочешь продолжить?")
-        builder = InlineKeyboardBuilder()
-        builder.button(text="Да ✅", callback_data=f"up:yes:{owner_id}:{next_item_emoji}")
-        builder.button(text="Нет ❌", callback_data=f"up:no:{owner_id}:none")
-        await callback.message.answer("Сделай выбор:", reply_markup=builder.as_markup())
+        bot.send_message(call.message.chat.id, f"Молодец ты улучшил подарок до {next_item_name} хочешь продолжить?")
+        markup = types.InlineKeyboardMarkup(row_width=2)
+        markup.add(
+            types.InlineKeyboardButton(text="Да ✅", callback_data=f"up:yes:{owner_id}:{next_item_emoji}"),
+            types.InlineKeyboardButton(text="Нет ❌", callback_data=f"up:no:{owner_id}:none")
+        )
+        bot.send_message(call.message.chat.id, "Сделай выбор:", reply_markup=markup)
     else:
-        await callback.message.answer("К сожелению ты не попал удачи в следующий раз! 💔")
-    await callback.answer()
+        bot.send_message(call.message.chat.id, "К сожелению ты не попал удачи в следующий раз! 💔")
+    bot.answer_callback_query(call.id)
 
-@dp.callback_query(F.data.startswith("c3:"))
-async def process_3_click(callback: types.CallbackQuery):
-    data = callback.data.split(":")
+@bot.callback_query_handler(func=lambda call: call.data.startswith('c3:'))
+def process_3_click(call):
+    data = call.data.split(":")
     owner_id = int(data[1])
     chosen_prize = data[3]
     pool_str = data[4]
     
-    if callback.from_user.id != owner_id:
-        await callback.answer("не ну не ты же выйграл", show_alert=True)
+    if call.from_user.id != owner_id:
+        bot.answer_callback_query(call.id, "не ну не ты же выйграл", show_alert=True)
         return
         
     all_prizes = [char for char in pool_str]
     revealed_text = f"Результат: Кто где прятался: {' | '.join(all_prizes)}\n\n"
     
     if chosen_prize == "🧸":
-        await callback.message.edit_text(revealed_text + "Поздравляю! Ты выбил мишку скоро отправим подарок🧸!")
+        bot.edit_message_text(revealed_text + "Поздравляю! Ты выбил мишку скоро отправим подарок🧸!", call.message.chat.id, call.message.message_id)
     else:
-        await callback.message.edit_text(revealed_text + "К сожелению ты не выйграл но у тебя точно скоро получится! 🍀")
-    await callback.answer()
+        bot.edit_message_text(revealed_text + "К сожелению ты не выйграл но у тебя точно скоро получится! 🍀", call.message.chat.id, call.message.message_id)
+    bot.answer_callback_query(call.id)
 
-@dp.message(Command("начать"), F.from_user.id == OWNER_ID)
-async def start_games(message: types.Message, command: CommandObject):
-    args = command.args
-    if not args: return
+@bot.message_handler(commands=['начать'])
+def start_games(message):
+    if message.from_user.id != OWNER_ID:
+        return
+        
+    args = message.text.replace("/начать", "").strip()
+    if not args:
+        return
         
     if args.startswith("перебив"):
         try:
             params = args.replace("перебив ", "", 1).split(" ")
-            price, seconds, prize = params[0], int(params[1]), " ".join(params[2:])
+            price = params[0]
+            seconds = int(params[1])
+            prize = " ".join(params[2:])
+            
             clash_game["active"] = True
-            await message.answer(f"📣 **Перебив начался!**\n\nЦена за сообщение в чате: {price}⭐\nВремя на перебив: {format_time(seconds)}\nПриз: *{prize}*", parse_mode="Markdown")
-            await asyncio.sleep(seconds)
+            bot.send_message(message.chat.id, f"📣 **Перебив начался!**\n\nЦена за сообщение в чате: {price}⭐\nВремя на перебив: {format_time(seconds)}\nПриз: *{prize}*", parse_mode="Markdown")
+            
+            time.sleep(seconds)
             if clash_game["active"]:
-                await message.answer("⏳ Время перебива вышло! Игра окончена.")
+                bot.send_message(message.chat.id, "⏳ Время перебива вышло! Игра окончена.")
                 clash_game["active"] = False
         except Exception:
-            await message.reply("❌ Ошибка! Пример: `начать перебив 1 30 ракета бомба`")
+            bot.reply_to(message, "❌ Ошибка! Пример: `/начать перебив 1 30 ракета бомба`")
             
     elif args.startswith("угадай число"):
         try:
@@ -175,28 +193,27 @@ async def start_games(message: types.Message, command: CommandObject):
             start, end = map(int, range_part.split("-"))
             secret_number = random.randint(start, end)
             guess_number_game.update({"active": True, "number": secret_number, "range": (start, end)})
-            await message.answer(f"🎲 Игра «Угадай число» запущена! Диапазон: от {start} до {end}. Пишите варианты!")
+            bot.send_message(message.chat.id, f"🎲 Игра «Угадай число» запущена! Диапазон: от {start} до {end}. Пишите варианты!")
             try:
-                await bot.send_message(chat_id=OWNER_ID, text=f"🤫 Загаданное число: **{secret_number}**")
+                bot.send_message(OWNER_ID, f"🤫 Загаданное число: **{secret_number}**")
             except Exception:
-                await message.reply("⚠️ Владелец, напиши мне в ЛС (/start) для получения секретных чисел!")
+                bot.reply_to(message, "⚠️ Владелец, напиши мне в ЛС (/start) для получения секретных чисел!")
         except Exception:
-            await message.reply("❌ Ошибка! Пример: `начать угадай число 1-1000`")
+            bot.reply_to(message, "❌ Ошибка! Пример: `/начать угадай число 1-1000`")
 
-@dp.message(F.text.digit())
-async def check_guessed_number(message: types.Message):
-    if not guess_number_game["active"]: return
+@bot.message_handler(func=lambda message: message.text and message.text.isdigit())
+def check_guessed_number(message):
+    if not guess_number_game["active"]:
+        return
     user_guess = int(message.text)
     secret = guess_number_game["number"]
     start, end = guess_number_game["range"]
     
     if start <= user_guess <= end and user_guess == secret:
-        await message.reply(f"🎉 Поздравляем! @{message.from_user.username or message.from_user.first_name} угадал число **{secret}**!")
+        name = message.from_user.username or message.from_user.first_name
+        bot.reply_to(message, f"🎉 Поздравляем! @{name} угадал число **{secret}**!")
         guess_number_game["active"] = False
 
-async def main():
-    await dp.start_polling(bot)
-
 if __name__ == "__main__":
-    asyncio.run(main())
-  
+    bot.infinity_polling()
+    
