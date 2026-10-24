@@ -53,7 +53,7 @@ def handle_dice(message):
         markup.add(*buttons)
         bot.send_message(message.chat.id, "Выбирай ячейку 👇", reply_markup=markup)
         
-    elif value in:  # Другие комбинации
+    elif value in:  # Другие комбинации (бары, виноград, лимоны)
         bot.reply_to(message, "🔥 Молодец! Ты выбил комбинацию!\nПеред тобой 3 ячейки, выбери одну. Если выберешь правильную — ты получишь мишку!")
         
         game_id = str(uuid.uuid4())[:8]
@@ -146,7 +146,7 @@ def process_3_click(call):
     data = call.data.split(":")
     owner_id = int(data[1])
     chosen_prize = data[3]
-    pool_str = data[4]
+    pool_str = data[5]
     
     if call.from_user.id != owner_id:
         bot.answer_callback_query(call.id, "не ну не ты же выйграл", show_alert=True)
